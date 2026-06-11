@@ -1,29 +1,26 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-// 1. Imported Leaflet map tools and global stylesheet anchors
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-// 2. Imported toast notifications wrapper hook
 import { toast } from 'react-hot-toast'
 
 export default function OrderDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [order, setOrder] = useState<any>(null)
-  const [items, setItems] = useState<any[]>([])
+  const [items, setItems] = useState<any[]>([]) // ⚙️ This state handles your purchased line items
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   useEffect(() => {
-    // Check if user has administrative clear privileges
     const checkAdminStatus = async (userObj: any) => {
       if (!userObj) {
         setIsAdmin(false)
         return
       }
-
       try {
         const { data: adminCheck, error: adminError } = await supabase
           .from('admin_users')
@@ -32,12 +29,7 @@ export default function OrderDetail() {
           .maybeSingle()
 
         if (adminError) console.error("Admin verification query failure:", adminError)
-        
-        if (adminCheck) {
-          setIsAdmin(true)
-        } else {
-          setIsAdmin(false)
-        }
+        setIsAdmin(!!adminCheck)
       } catch (err) {
         console.error("Failed to run role check:", err)
         setIsAdmin(false)
@@ -47,19 +39,16 @@ export default function OrderDetail() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        
-        // Fetch current active session user
         const { data: { user } } = await supabase.auth.getUser()
         
         if (!user) {
           navigate('/login')
           return
         }
-
-        // Run the admin check for the initial load
+        
+        setCurrentUserId(user.id)
         await checkAdminStatus(user)
 
-        // Fetch main order metadata
         const { data: orderData, error: orderError } = await supabase
           .from('orders')
           .select('*')
@@ -69,7 +58,6 @@ export default function OrderDetail() {
         if (orderError) throw orderError
         setOrder(orderData)
 
-        // Fetch line items
         const { data: itemsData, error: itemsError } = await supabase
           .from('order_items')
           .select('*')
@@ -84,7 +72,6 @@ export default function OrderDetail() {
 
         const productIds = itemsData.map(item => item.product_id).filter(Boolean)
 
-        // Fetch details directly from 'products' table using case-sensitive column 'Name'
         const { data: productsCatalog, error: catalogError } = await supabase
           .from('products')
           .select('id, Name')
@@ -111,19 +98,19 @@ export default function OrderDetail() {
     if (id) {
       fetchData()
 
-      // AUTH LISTENER: Listens to the exact moment a user signs in/out
       const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
         async (event, session) => {
           if (session?.user) {
+            setCurrentUserId(session.user.id)
             await checkAdminStatus(session.user)
           } else if (event === 'SIGNED_OUT') {
             setIsAdmin(false)
+            setCurrentUserId(null)
             navigate('/login')
           }
         }
       )
 
-      // REALTIME CHANNEL SUBSCRIPTION: Stream database status shifts safely
       const orderChannel = supabase
         .channel(`live_order_${id}`)
         .on(
@@ -135,11 +122,29 @@ export default function OrderDetail() {
             filter: `id=eq.${id}`
           },
           (payload) => {
-            // ⭐ SAFE STATUS REWRITE: Avoid interfering with an active admin dropdown state
+            const updatedStatus = payload.new.status
+
             setOrder((prev: any) => {
               if (!prev) return null
-              if (isAdmin) return prev // Keep admin local state intact
-              return { ...prev, status: payload.new.status }
+              
+              if (prev.status !== updatedStatus) {
+                toast.success(`Order Status Updated to: ${updatedStatus.toUpperCase()} 📦`, {
+                  duration: 6000,
+                  position: 'top-center',
+                  style: {
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontWeight: '800',
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+                  }
+                })
+                
+                if (window.location.pathname.includes('/admin')) return prev
+                return { ...prev, status: updatedStatus }
+              }
+              
+              return prev
             })
           }
         )
@@ -150,7 +155,7 @@ export default function OrderDetail() {
         supabase.removeChannel(orderChannel)
       }
     }
-  }, [id, navigate, isAdmin])
+  }, [id, navigate])
 
   const handleStatusChange = async (newStatus: string) => {
     setUpdating(true)
@@ -161,15 +166,12 @@ export default function OrderDetail() {
         .eq('id', id)
 
       if (error) throw error
-
-      setOrder((prev: any) => ({ ...prev, status: newStatus }))
       
-      // ⭐ Updated to Toast success notification
-      toast.success(`Order status updated to: ${newStatus.toUpperCase()}`)
+      setOrder((prev: any) => ({ ...prev, status: newStatus }))
+      toast.success(`Status updated to: ${newStatus.toUpperCase()}`)
     } catch (err) {
       console.error("Failed to commit database status update:", err)
-      // ⭐ Updated to Toast error notification
-      toast.error("Failed to commit status update to the server.")
+      toast.error("Failed to commit status update.")
     } finally {
       setUpdating(false)
     }
@@ -178,13 +180,16 @@ export default function OrderDetail() {
   if (loading) return <div className="text-center py-12 font-medium text-gray-500">Loading order configurations...</div>
   if (!order) return <div className="text-center py-12 font-medium text-gray-500">Target order file not found.</div>
 
-  // Parse location coordinate fields cleanly
   const hasCoordinates = order.delivery_lat && order.delivery_lng
   const mapPosition: [number, number] = [Number(order.delivery_lat || 0), Number(order.delivery_lng || 0)]
 
+  // Calculate invoice breakdowns safely
+  const cargoSubtotal = order.total_amount || 0
+  const deliverySurcharge = order.delivery_fee || 0
+  const totalInvoiceSettled = cargoSubtotal + deliverySurcharge
+
   return (
     <div className="max-w-2xl mx-auto pb-20 px-4 pt-6">
-      {/* Dynamic Back Link Routing */}
       <Link 
         to={isAdmin ? "/admin/orders" : "/orders"} 
         className="inline-flex items-center text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors mb-4"
@@ -242,26 +247,31 @@ export default function OrderDetail() {
           )}
         </div>
 
+        {/* 🛒 FIXED: Maps correctly over local state array array variable "items" instead of "order.order_items" */}
         <div className="border-t border-gray-100 pt-5">
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Purchased Manifest Items</div>
           <div className="divide-y divide-gray-100 bg-gray-50/50 rounded-xl border px-4 border-gray-100">
-            {items.map((item) => (
-              <div key={item.id} className="flex justify-between items-center py-3.5 text-sm">
-                <div className="font-medium text-gray-800">
-                  {item.products?.name} 
-                  <span className="text-gray-400 font-mono text-xs ml-2 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
-                    x{item.quantity}
-                  </span>
+            {items && items.length > 0 ? (
+              items.map((item) => (
+                <div key={item.id} className="flex justify-between items-center py-3.5 text-sm">
+                  <div className="font-medium text-gray-800">
+                    {item.products?.name} 
+                    <span className="text-gray-400 font-mono text-xs ml-2 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                      x{item.quantity}
+                    </span>
+                  </div>
+                  <div className="font-bold text-gray-900 font-mono">
+                    ${((item.price_at_time || 0) * item.quantity).toFixed(2)}
+                  </div>
                 </div>
-                <div className="font-bold text-gray-900">
-                  ${((item.price_at_time || 0) * item.quantity).toFixed(2)}
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="py-4 text-center text-xs text-gray-400 font-medium">No distinct lines mapped to this cargo tracking row.</div>
+            )}
           </div>
         </div>
 
-        {/* ⭐ Logistic Pin Coordinates Map Layer Component Display */}
+        {/* GPS Target Location Section */}
         <div className="border-t border-gray-100 pt-6 mt-6">
           <div className="flex justify-between items-center mb-3">
             <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -284,7 +294,7 @@ export default function OrderDetail() {
               <MapContainer 
                 center={mapPosition} 
                 zoom={16} 
-                scrollWheelZoom={false} // Halts zooming maps when navigating through mouse cursor page wheel spans
+                scrollWheelZoom={false}
                 className="h-full w-full"
               >
                 <TileLayer
@@ -307,10 +317,22 @@ export default function OrderDetail() {
           )}
         </div>
 
-        <div className="flex justify-between items-center font-black text-xl mt-6 pt-5 border-t border-dashed border-gray-200">
-          <span className="text-gray-800 text-base font-bold">Total Statement Balance</span>
-          <span className="text-blue-600 tracking-tight">${(order.total_amount || 0).toFixed(2)}</span>
+        {/* 💳 Balanced Invoice Pricing Panel */}
+        <div className="border-t border-gray-100 pt-6 mt-6 space-y-2.5 text-xs text-gray-500 font-medium">
+          <div className="flex justify-between">
+            <span>Items Subtotal:</span>
+            <span className="text-gray-800 font-bold font-mono">${cargoSubtotal.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Logistics / Delivery Fee:</span>
+            <span className="text-blue-600 font-bold font-mono">+${deliverySurcharge.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between items-center font-black text-xl text-gray-900 border-t border-dashed border-gray-200 pt-4 mt-2">
+            <span className="text-gray-800 text-sm font-black uppercase tracking-tight">Total Statement Balance</span>
+            <span className="text-blue-600 font-mono tracking-tight text-2xl">${totalInvoiceSettled.toFixed(2)}</span>
+          </div>
         </div>
+
       </div>
     </div>
   )

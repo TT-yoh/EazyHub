@@ -10,7 +10,7 @@ interface Product {
   "Excl VAT": number
   "Incl VAT": number
   stock: number
-  company: string
+  company: number 
   image_url?: string
 }
 
@@ -25,6 +25,7 @@ export default function Home() {
   const observerRef = useRef<HTMLDivElement | null>(null)
   const pageSize = 30
 
+  // 1. Core Fetch Trigger
   useEffect(() => {
     setProducts([])
     setPage(0)
@@ -39,6 +40,27 @@ export default function Home() {
     }
   }, [page])
 
+  // 2. ⭐ REALTIME SYNC: Listen for live changes from the admin dashboard
+  useEffect(() => {
+    const channel = supabase
+      .channel('public-products-changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'products' },
+        (payload) => {
+          // Instantly sync local states with updated image/data records
+          setProducts(prev => 
+            prev.map(item => item.id === payload.new.id ? { ...item, ...payload.new } : item)
+          )
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
   const fetchProducts = async (pageNum: number, reset: boolean) => {
     setLoading(true)
     
@@ -46,14 +68,15 @@ export default function Home() {
       .from('products')
       .select('*')
       .eq('is_active', true)
+      .order('created_at', { ascending: false }) 
       .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1)
     
-    if (search) {
-      query = query.ilike('"Name"', `%${search}%`)
+    if (search.trim() !== '') {
+      query = query.ilike('Name', `%${search.trim()}%`) 
     }
     
     if (companyFilter !== 'all') {
-      query = query.eq('company', companyFilter)
+      query = query.eq('company', parseInt(companyFilter)) 
     }
     
     const { data, error } = await query
@@ -87,52 +110,60 @@ export default function Home() {
   }, [loading, hasMore, initialLoad])
 
   return (
-    <div>
-      <div className="sticky top-[57px] bg-white z-20 pb-3 pt-1 shadow-md">
-  <input
-    type="text"
-    placeholder="🔍 Search products by name..."
-    value={search}
-    onChange={(e) => setSearch(e.target.value)}
-    className="input w-full text-base"
-  />
-</div>
+    <div className="px-1 pb-12">
+      {/* Search Input Sticky Container */}
+      <div className="sticky top-[57px] bg-white z-20 pb-3 pt-1 shadow-sm">
+        <input
+          type="text"
+          placeholder="🔍 Search products by name..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="input w-full text-base border border-gray-200 rounded-xl p-2.5 outline-none focus:border-blue-500 transition-colors"
+        />
+      </div>
 
-      <div className="flex gap-2 my-4 overflow-x-auto pb-2">
+      {/* Pill Filter Navigation Row */}
+      <div className="flex gap-2 my-4 overflow-x-auto pb-2 scrollbar-none">
         <button
           onClick={() => setCompanyFilter('all')}
-          className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-            companyFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+          className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+            companyFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
           }`}
         >
           All Products
         </button>
         <button
-          onClick={() => setCompanyFilter('Mineazy')}
-          className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-            companyFilter === 'Mineazy' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+          onClick={() => setCompanyFilter('1')} 
+          className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+            companyFilter === '1' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700'
           }`}
         >
           ⛏️ Mineazy
         </button>
         <button
-          onClick={() => setCompanyFilter('Farmeazy')}
-          className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-            companyFilter === 'Farmeazy' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+          onClick={() => setCompanyFilter('2')} 
+          className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+            companyFilter === '2' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'
           }`}
         >
-          🌾 Farmeazy
+          🚜 Farmeazy
         </button>
       </div>
 
+      {/* Dynamic Results Counter */}
       {!initialLoad && (
-        <div className="text-sm text-gray-500 mb-3">
-          {products.length} product(s) found
+        <div className="text-xs font-bold text-gray-400 mb-3 ml-1">
+          {products.length} Items Displayed
         </div>
       )}
 
-      {initialLoad && products.length === 0 && !loading ? (
-        <div className="text-center py-12 text-gray-500">Loading products...</div>
+      {/* Loading & Rendering States */}
+      {initialLoad && products.length === 0 ? (
+        <div className="text-center py-12 text-xs font-bold text-gray-400 animate-pulse">Loading items...</div>
+      ) : products.length === 0 ? (
+        <div className="text-center py-12 text-xs font-bold text-gray-400 border border-dashed rounded-xl bg-gray-50">
+          No matches found inside database criteria.
+        </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {products.map((product, index) => (
@@ -143,12 +174,13 @@ export default function Home() {
         </div>
       )}
 
+      {/* Scroll Footer Load Indicators */}
       {loading && products.length > 0 && (
-        <div className="text-center py-8 text-gray-500">Loading more products...</div>
+        <div className="text-center py-6 text-xs font-bold text-blue-600 animate-pulse">Loading more items...</div>
       )}
 
       {!hasMore && products.length > 0 && (
-        <div className="text-center py-8 text-gray-400 text-sm">✓ All {products.length} products loaded</div>
+        <div className="text-center py-8 text-xs font-bold text-gray-400">✓ All {products.length} products loaded</div>
       )}
     </div>
   )

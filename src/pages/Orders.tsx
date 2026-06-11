@@ -1,50 +1,187 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-
-interface Order {
-  id: string
-  order_number: string
-  total_amount: number
-  status: string
-  created_at: string
-}
+import { toast } from 'react-hot-toast'
 
 export default function Orders() {
-  const [orders, setOrders] = useState<Order[]>([])
+  const navigate = useNavigate()
+  const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const fetchOrders = async () => {
+  // Isolated fetch logic joined with child relational arrays
+  const fetchUserOrders = async () => {
+    try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
-      const { data } = await supabase.from('orders').select('*').eq('customer_id', user.id).order('created_at', { ascending: false })
+      if (!user) {
+        navigate('/login')
+        return
+      }
+
+      // 🔗 RELATIONAL JOIN: Fetches the order, the delivery surcharge column, and child line items text
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          created_at,
+          status,
+          total_amount,
+          delivery_fee,
+          order_items (
+            id,
+            quantity,
+            products (
+              Name
+            )
+          )
+        `)
+        .eq('customer_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
       setOrders(data || [])
+    } catch (err) {
+      console.error("Error fetching order manifest matrix:", err)
+      toast.error("Failed to load your order history.")
+    } finally {
       setLoading(false)
     }
-    fetchOrders()
-  }, [])
+  }
 
-  if (loading) return <div className="text-center py-12">Loading orders...</div>
-  if (orders.length === 0) return <div className="text-center py-12"><h2 className="text-xl font-bold mb-4">No orders</h2><Link to="/" className="btn-primary">Shop Now</Link></div>
+  useEffect(() => {
+    fetchUserOrders()
+
+    // Real-time listener for background administrative update changes
+    const fetchUserAndSubscribe = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const ordersDashboardChannel = supabase
+        .channel(`user_orders_dashboard_${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders',
+            filter: `customer_id=eq.${user.id}`
+          },
+          (payload) => {
+            // Hot-swap the updated order state properties dynamically without breaking relationships
+            setOrders((prevOrders) =>
+              prevOrders.map((order) =>
+                order.id === payload.new.id 
+                  ? { 
+                      ...order, 
+                      status: payload.new.status,
+                      total_amount: payload.new.total_amount,
+                      delivery_fee: payload.new.delivery_fee
+                    } 
+                  : order
+              )
+            )
+
+            toast.success(`Order #${payload.new.order_number.slice(0, 10)}... status is now: ${payload.new.status.toUpperCase()}!`)
+          }
+        )
+        .subscribe()
+
+      return ordersDashboardChannel
+    }
+
+    const subscriptionPromise = fetchUserAndSubscribe()
+
+    return () => {
+      subscriptionPromise.then((channel) => {
+        if (channel) supabase.removeChannel(channel)
+      })
+    }
+  }, [navigate])
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'completed': return 'bg-green-50 text-green-700 border-green-100'
+      case 'dispatched': return 'bg-blue-50 text-blue-700 border-blue-100'
+      case 'cancelled': return 'bg-red-50 text-red-700 border-red-100'
+      default: return 'bg-amber-50 text-amber-700 border-amber-100'
+    }
+  }
+
+  if (loading) return <div className="text-center py-12 font-medium text-gray-500">Loading your order lines...</div>
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">My Orders</h1>
-      {orders.map(order => (
-        <Link key={order.id} to={`/orders/${order.id}`} className="block bg-white rounded-lg shadow p-4 mb-3">
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="font-mono text-sm text-gray-500">{order.order_number}</div>
-              <div className="font-bold">${order.total_amount.toFixed(2)}</div>
-              <div className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</div>
-            </div>
-            <div>
-              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">{order.status}</span>
-            </div>
-          </div>
-        </Link>
-      ))}
+    <div className="max-w-2xl mx-auto pb-20 px-4 pt-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-black text-gray-900 tracking-tight">My Orders</h1>
+        <p className="text-xs text-gray-400 mt-1">Track live processing statuses for your Mineazy and Farmeazy assets.</p>
+      </div>
+
+      {orders.length === 0 ? (
+        <div className="bg-white border border-dashed rounded-2xl p-12 text-center text-sm font-medium text-gray-400 shadow-sm">
+          You haven't placed any orders yet.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {orders.map((order) => {
+            // ⭐ ARITHMETIC AGGREGATION BREAKDOWN FIX
+            const subtotalAmount = Number(order.total_amount || 0)
+            const deliverySurcharge = Number(order.delivery_fee || 0)
+            
+            // Checks if the field already contains the grand total, otherwise combines them safely
+            const grandTotalDisplay = subtotalAmount + deliverySurcharge
+
+            return (
+              <Link
+                key={order.id}
+                to={`/orders/${order.id}`}
+                className="block bg-white border border-gray-100 hover:border-blue-200 rounded-2xl p-5 shadow-xs transition-all hover:shadow-md active:scale-[0.99] group"
+              >
+                <div className="flex justify-between items-start gap-4">
+                  <div className="space-y-2 min-w-0 flex-1">
+                    <div>
+                      <span className="block font-mono text-xs font-bold text-gray-400">Reference: {order.order_number}</span>
+                      <span className="block text-[11px] text-gray-400 font-medium mt-0.5">
+                        Placed on {new Date(order.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                      </span>
+                    </div>
+
+                    {/* 📦 INLINE MANIFEST SUMMARY PREVIEW CHIPS */}
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {order.order_items?.slice(0, 2).map((item: any) => (
+                        <span key={item.id} className="inline-block text-[10px] font-bold bg-gray-50 text-gray-600 border border-gray-100 px-2 py-0.5 rounded-lg truncate max-w-[150px]">
+                          {item.products?.Name || 'Market Item'} <strong className="text-gray-400 font-normal">x{item.quantity}</strong>
+                        </span>
+                      ))}
+                      {order.order_items?.length > 2 && (
+                        <span className="inline-block text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">
+                          +{order.order_items.length - 2} items
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Grand Bill Print block containing the fix logic summaries */}
+                    <div className="pt-2 flex items-baseline gap-1.5">
+                      <span className="text-xl font-black text-gray-900 font-mono">
+                        ${grandTotalDisplay.toFixed(2)}
+                      </span>
+                      {deliverySurcharge > 0 && (
+                        <span className="text-[10px] text-gray-400 font-medium font-mono">
+                          (inc. ${deliverySurcharge.toFixed(2)} delivery)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dynamic Status Pill Badge Indicator */}
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border flex-shrink-0 ${getStatusStyle(order.status)}`}>
+                    {order.status}
+                  </span>
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

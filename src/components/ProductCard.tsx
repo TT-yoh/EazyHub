@@ -1,5 +1,19 @@
 import { useCartStore } from '../store/cartStore'
 
+// ⭐ ADDED STATIC LOGO MAPPING: Links your hosted Supabase logos directly to the storefront
+const COMPANY_STATIC: Record<number, { name: string; icon: string; logoUrl: string }> = {
+  1: { 
+    name: 'Mineazy', 
+    icon: '⛏️',
+    logoUrl: 'https://plmwckgshtxwgvwmbsvq.supabase.co/storage/v1/object/public/product-images/company-logos/mineazy-logo.png'
+  },
+  2: { 
+    name: 'Farmeazy', 
+    icon: '🚜',
+    logoUrl: 'https://plmwckgshtxwgvwmbsvq.supabase.co/storage/v1/object/public/product-images/company-logos/farmeazy-logo.png'
+  }
+};
+
 interface Product {
   id: string
   "Item No": string
@@ -8,7 +22,7 @@ interface Product {
   "Excl VAT": number
   "Incl VAT": number
   stock: number
-  company: string
+  company: number | string 
   image_url?: string
 }
 
@@ -19,61 +33,74 @@ interface ProductCardProps {
 export default function ProductCard({ product }: ProductCardProps) {
   const addItem = useCartStore((state) => state.addItem)
 
+  const companyId = Number(product.company)
+  const isMineazy = companyId === 1
+  const isOutOfStock = product.stock === 0
+
+  // ⭐ Resolve brand details instantly based on the product database company ID mapping
+  const brand = COMPANY_STATIC[companyId] || { name: 'General', icon: '📦', logoUrl: '' }
+
   const handleAddToCart = () => {
-    if (product.stock === 0) return
+    if (isOutOfStock) return
     addItem({
       product_id: product.id,
       name: product["Name"],
       price: product["Excl VAT"],
-      company_name: product.company,
+      company_name: brand.name,
       unit: product["Unit"] || 'each',
       max_stock: product.stock,
     })
   }
 
-  const isMineazy = product.company === 'Mineazy'
-  const isOutOfStock = product.stock === 0
-
   return (
-    <div className="bg-white rounded-lg shadow p-3 hover:shadow-md transition-shadow flex flex-col justify-between h-full min-h-[380px]">
+    // 📱 Compact Grid card layout optimizations
+    <div className="bg-white rounded-xl shadow-xs p-2.5 hover:shadow-md transition-shadow flex flex-col justify-between h-full min-h-[290px] relative border border-gray-100/60">
       <div>
-        <div className={`text-xs px-2 py-0.5 rounded-full inline-block mb-2 font-medium ${
-          isMineazy ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-        }`}>
-          {isMineazy ? '⛏️ Mineazy' : '🌾 Farmeazy'}
+        
+        {/* ⭐ UPGRADED LOGO BADGE BLOCK: Renders image graphic asset automatically */}
+        <div className="flex items-center gap-1 mb-1.5">
+          {brand.logoUrl ? (
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0">
+              <img src={brand.logoUrl} alt={brand.name} className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <span className="text-[10px]">{brand.icon}</span>
+          )}
+          <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+            isMineazy ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-800'
+          }`}>
+            {brand.name}
+          </span>
         </div>
         
-        {/* Aspect-locked media container avoids Cumulative Layout Shifts */}
-        <div className="w-full h-36 bg-gray-50 border border-gray-100 rounded-md mb-2 overflow-hidden flex items-center justify-center relative flex-shrink-0">
+        <div className="w-full h-24 bg-gray-50 border border-gray-100 rounded-lg mb-1.5 overflow-hidden flex items-center justify-center relative flex-shrink-0">
           {product.image_url ? (
-            <img src={product.image_url} alt={product["Name"]} className="w-full h-full object-cover object-center transform hover:scale-105 transition-transform duration-300" loading="lazy" />
+            <img src={product.image_url} alt={product["Name"]} className="w-full h-full object-cover object-center" loading="lazy" />
           ) : (
             <div className="flex flex-col items-center justify-center text-gray-300 select-none">
-              <span className="text-3xl">{isMineazy ? '⚙️' : '🚜'}</span>
-              <span className="text-[9px] mt-1 uppercase tracking-wider font-bold">No Image Asset</span>
+              <span className="text-xl">{brand.icon}</span>
             </div>
           )}
         </div>
 
-        <div className="text-xs text-gray-400 font-mono">{product["Item No"]}</div>
-        <h3 className="font-bold text-sm mt-1 line-clamp-2 min-h-[40px] text-gray-800 leading-tight">{product["Name"]}</h3>
-        <div className="text-xs text-gray-400 mt-0.5">{product["Unit"]}</div>
+        <div className="text-[10px] text-gray-400 font-mono">{product["Item No"]}</div>
+        <h3 className="font-bold text-xs mt-0.5 line-clamp-2 min-h-[32px] text-gray-800 leading-tight">{product["Name"]}</h3>
         
-        <div className="mt-2 bg-gray-50/70 p-2 rounded-md border border-gray-100">
+        <div className="mt-1.5 bg-gray-50/60 p-1.5 rounded-lg border border-gray-100 flex items-baseline justify-between">
           <div>
-            <span className="text-blue-600 font-black text-base">${Number(product["Excl VAT"]).toFixed(2)}</span>
-            <span className="text-[10px] text-gray-400 ml-1">excl</span>
+            <span className="text-blue-600 font-black text-sm">${Number(product["Excl VAT"]).toFixed(2)}</span>
+            <span className="text-[9px] text-gray-400 ml-0.5">excl</span>
           </div>
-          <div className="text-xs text-gray-500 font-medium">
-            ${Number(product["Incl VAT"]).toFixed(2)} incl VAT
+          <div className="text-[9px] text-gray-400">
+            ${Number(product["Incl VAT"]).toFixed(2)} Target
           </div>
         </div>
         
-        <div className="mt-2 text-xs font-semibold">
+        <div className="mt-1.5 text-[10px] font-semibold">
           {isOutOfStock ? (
-            <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md inline-block">Out of stock</span>
+            <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md inline-block">Out of stock</span>
           ) : (
-            <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded-md inline-block">Available ({product.stock})</span>
+            <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded-md inline-block">Available ({product.stock})</span>
           )}
         </div>
       </div>
@@ -81,8 +108,8 @@ export default function ProductCard({ product }: ProductCardProps) {
       <button
         onClick={handleAddToCart}
         disabled={isOutOfStock}
-        className={`mt-3 w-full text-white text-sm py-2 rounded-lg font-bold transition-all ${
-          isOutOfStock ? 'bg-gray-200 cursor-not-allowed text-gray-400' : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.99]'
+        className={`mt-2.5 w-full text-white text-xs py-1.5 rounded-md font-bold transition-all ${
+          isOutOfStock ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
         }`}
       >
         {isOutOfStock ? 'Out of Stock' : 'Add to Cart'}

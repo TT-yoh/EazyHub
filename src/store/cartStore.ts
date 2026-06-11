@@ -66,13 +66,15 @@ export const useCartStore = create<CartStore>()(
       clearCart: () => set({ items: [] }),
 
       getTotalItems: () => {
-        return get().items.reduce((sum, item) => sum + item.quantity, 0)
+        return get().items.reduce((total, item) => total + item.quantity, 0)
       },
 
       getSubtotal: () => {
-        return get().items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+        return get().items.reduce((total, item) => total + item.price * item.quantity, 0)
       },
     }),
-    { name: 'eazyhub-cart' }
+    {
+      name: 'eazyhub-cart-storage', // Key used inside LocalStorage matrix
+    }
   )
 )
