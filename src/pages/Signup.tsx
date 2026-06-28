@@ -12,6 +12,7 @@ export default function Signup() {
   const [location, setLocation] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -66,7 +67,14 @@ export default function Signup() {
         return
       }
       
-      // Auto login
+      if (!data.session) {
+        // Supabase Email Confirmation is enabled
+        setSuccess(true)
+        setLoading(false)
+        return
+      }
+      
+      // Auto login fallback if verification is disabled
       const { error: loginError } = await supabase.auth.signInWithPassword({
         email,
         password
@@ -80,6 +88,26 @@ export default function Signup() {
     }
     
     setLoading(false)
+  }
+
+  if (success) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-8">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6 text-center">
+          <div className="text-6xl mb-4">📧</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Check your email</h2>
+          <p className="text-gray-600 mb-6">
+            We sent an account verification link to <strong className="text-gray-900">{email}</strong>
+          </p>
+          <div className="bg-blue-50 text-blue-800 text-sm p-4 rounded-xl mb-6">
+            Please click the link in that email to activate your EazyHub account before logging in.
+          </div>
+          <Link to="/login" className="btn-primary w-full inline-block">
+            Proceed to Login
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

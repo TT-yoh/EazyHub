@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { useCartStore } from '../store/cartStore'
 import CartDrawer from './CartDrawer'
+import PwaPrompt from './PwaPrompt'
 
 interface LayoutProps {
   isAdmin: boolean
@@ -48,6 +49,8 @@ export default function Layout({ isAdmin }: LayoutProps) {
       <main className="max-w-7xl mx-auto px-4 py-4">
         <Outlet />
       </main>
+
+      <PwaPrompt />
 
       {/* Bottom Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-xl z-40">

@@ -137,22 +137,25 @@ export default function AdminUpload() {
     })
   }
 
-  // ⭐ THE LIVE PURGE EXECUTOR ROUTINE
+  // ⭐ SECURED PURGE EXECUTOR ROUTINE
   const executeMasterCatalogFlush = async () => {
+    // 🛡️ Hard Security Lock: Reject if not Super Admin
+    if (adminCompanyId !== 3) {
+      toast.error('Security Block: Only Super Admins can execute mass data purges.')
+      return
+    }
+
     setIsFlushing(true)
     setMessage('')
     const purgeToast = toast.loading('Scrubbing target product records out of catalog schemas...')
     
     try {
-      let query = supabase.from('products').delete()
+      // Purge all products safely
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000') 
 
-      if (adminCompanyId !== 3) {
-        query = query.eq('company', adminCompanyId)
-      } else {
-        query = query.neq('id', '00000000-0000-0000-0000-000000000000') 
-      }
-
-      const { error } = await query
       if (error) throw error
 
       setMessage('🚨 Database wipe operation successful. Target product rows removed.')
@@ -225,7 +228,7 @@ export default function AdminUpload() {
               className="w-full text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-xl p-2.5 outline-none shadow-xs cursor-pointer focus:border-blue-500"
             >
               <option value={1}>⛏️ Stamp Payload Context as: Mineazy Mining Solutions</option>
-              <option value={2}>🚜 Stamp Payload Context as: Farmeazy Agricultural Line</option>
+              <option value={2}>🚜 Stamp Payload Context as: Farmeazy Farming Solutions</option>
             </select>
           </div>
         )}
@@ -263,40 +266,42 @@ export default function AdminUpload() {
         )}
       </div>
 
-      <div className="bg-red-50/40 rounded-2xl border border-red-100 p-4 sm:p-6 space-y-4">
-        <div>
-          <h2 className="text-sm font-black text-red-700 uppercase tracking-wide">⚠️ Master Catalog Data Purge</h2>
-          <p className="text-[11px] text-red-900/60 mt-1">
-            Permanently clear structural inventory records from the database schema. 
-            {adminCompanyId !== 3 && " You will only delete products belonging to your assigned company context."}
-          </p>
-        </div>
-        
-        <div className="bg-white border border-red-100 rounded-xl p-4 sm:p-5 space-y-3 shadow-sm">
-          <p className="text-xs text-gray-600">To proceed with total catalog erasure, type <strong className="text-red-600 select-all font-mono font-bold bg-red-50 px-1 rounded">DELETE ALL PRODUCTS</strong> below:</p>
+      {/* ⭐ HIDDEN FROM BRANCH ADMINS: Only Super Admins (ID 3) can see the Purge Section */}
+      {adminCompanyId === 3 && (
+        <div className="bg-red-50/40 rounded-2xl border border-red-100 p-4 sm:p-6 space-y-4">
+          <div>
+            <h2 className="text-sm font-black text-red-700 uppercase tracking-wide">⚠️ Master Catalog Data Purge</h2>
+            <p className="text-[11px] text-red-900/60 mt-1">
+              Permanently clear structural inventory records from the database schema.
+            </p>
+          </div>
           
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input 
-              type="text" 
-              placeholder="Verbatim authentication confirmation..." 
-              value={flushConfirmation} 
-              onChange={(e) => setFlushConfirmation(e.target.value)} 
-              disabled={isFlushing}
-              className="text-xs font-mono font-bold text-gray-800 border border-gray-200 rounded-xl p-3 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 flex-1 w-full" 
-            />
-            <button 
-              type="button"
-              onClick={handleMasterCatalogFlush} 
-              disabled={isFlushing || flushConfirmation !== 'DELETE ALL PRODUCTS'} 
-              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-bold px-6 py-3 rounded-xl transition-all shadow-sm flex items-center justify-center min-w-[160px] w-full sm:w-auto"
-            >
-              {isFlushing ? 'Purging Records...' : 'Execute Table Purge'}
-            </button>
+          <div className="bg-white border border-red-100 rounded-xl p-4 sm:p-5 space-y-3 shadow-sm">
+            <p className="text-xs text-gray-600">To proceed with total catalog erasure, type <strong className="text-red-600 select-all font-mono font-bold bg-red-50 px-1 rounded">DELETE ALL PRODUCTS</strong> below:</p>
+            
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input 
+                type="text" 
+                placeholder="Verbatim authentication confirmation..." 
+                value={flushConfirmation} 
+                onChange={(e) => setFlushConfirmation(e.target.value)} 
+                disabled={isFlushing}
+                className="text-xs font-mono font-bold text-gray-800 border border-gray-200 rounded-xl p-3 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 flex-1 w-full" 
+              />
+              <button 
+                type="button"
+                onClick={handleMasterCatalogFlush} 
+                disabled={isFlushing || flushConfirmation !== 'DELETE ALL PRODUCTS'} 
+                className="bg-red-600 hover:bg-red-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-bold px-6 py-3 rounded-xl transition-all shadow-sm flex items-center justify-center min-w-[160px] w-full sm:w-auto"
+              >
+                {isFlushing ? 'Purging Records...' : 'Execute Table Purge'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* ⭐ INLINE MODAL OVERLAY INJECTED HERE */}
+      {/* ⭐ INLINE MODAL OVERLAY */}
       {modal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs transition-opacity animate-fade-in">
           <div className="bg-white border border-gray-100 rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4 transform scale-100 transition-all duration-200">

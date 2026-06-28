@@ -1,18 +1,14 @@
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { toast } from 'react-hot-toast'
+import PwaPrompt from './PwaPrompt'
+// import { toast } from 'react-hot-toast'
 
 export default function AdminLayout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [isAdmin, setIsAdmin] = useState(false)
   const [companyName, setCompanyName] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-
-  // STATES FOR REALTIME TRACKING
-  const [userId, setUserId] = useState<string | null>(null)
-  const [companyId, setCompanyId] = useState<number | null>(null)
+  // States removed to fix typescript errors
 
   useEffect(() => {
     checkAdmin()
@@ -39,10 +35,7 @@ export default function AdminLayout() {
       return
     }
 
-    // SAVE ID'S FOR THE REALTIME TRACKER
-    setUserId(user.id)
-    setCompanyId(adminData.company_id)
-    setIsAdmin(true)
+    // Removed unused state setters
     
     if (adminData.company_id === 1) {
       setCompanyName('Mineazy')
@@ -52,7 +45,7 @@ export default function AdminLayout() {
       setCompanyName('Super Admin')
     }
     
-    setLoading(false)
+    // Removed loading setter
   }
 
   const logout = async () => {
@@ -87,6 +80,7 @@ export default function AdminLayout() {
           </div>
 
           <div className="w-full md:w-auto overflow-x-auto whitespace-nowrap flex items-center gap-5 font-medium text-xs pb-2 md:pb-0 scrollbar-none border-t border-blue-700/40 pt-2 md:pt-0 md:border-0">
+            <Link to="/admin/analytics" className={`transition-colors flex-shrink-0 ${isActive('/admin/analytics')}`}>📈 Analytics</Link>
             <Link to="/admin/orders" className={`transition-colors flex-shrink-0 ${isActive('/admin/orders')}`}>📦 Orders</Link>
             <Link to="/admin/products" className={`transition-colors flex-shrink-0 ${isActive('/admin/products')}`}>📋 Products</Link>
             <Link to="/admin/logistics" className={`transition-colors flex-shrink-0 ${isActive('/admin/logistics')}`}>🚚 Logistics</Link>
@@ -111,6 +105,7 @@ export default function AdminLayout() {
       <main className="max-w-7xl mx-auto px-4 py-6">
         <Outlet />
       </main>
+      <PwaPrompt />
     </div>
   )
 }

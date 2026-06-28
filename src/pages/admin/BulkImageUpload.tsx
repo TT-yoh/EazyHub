@@ -14,7 +14,6 @@ interface DBStats {
   samples: any[];
 }
 
-// ⭐ TYPE INTERFACE FOR INLINE MODAL CONFIGURATION
 interface ModalSettings {
   isOpen: boolean;
   title: string;
@@ -28,11 +27,10 @@ export default function BulkImageUpload() {
   const [uploading, setUploading] = useState(false)
   const [logs, setLogs] = useState<UploadLog[]>([])
   const [matchType, setMatchType] = useState<'name' | 'item_no'>('item_no')
-  const [adminCompanyId, setAdminCompanyId] = useState<string | number | null>(null)
+  const [adminCompanyId, setAdminCompanyId] = useState<number | null>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [dbStats, setDbStats] = useState<DBStats>({ count: 0, samples: [] })
 
-  // ⭐ HOOKS FOR STORAGE PURGE OPERATION STATES
   const [isPurgingBucket, setIsPurgingBucket] = useState(false)
   const [modal, setModal] = useState<ModalSettings>({
     isOpen: false,
@@ -43,7 +41,7 @@ export default function BulkImageUpload() {
     onConfirm: () => {},
   })
 
-  const fetchAllProducts = async (companyId: number | string) => {
+  const fetchAllProducts = async (companyId: number) => {
     let allProducts: any[] = []
     let from = 0
     let to = 999
@@ -75,11 +73,14 @@ export default function BulkImageUpload() {
     return allProducts
   }
 
-  // Self-contained data fetch routine to allow quick refreshing
+  // ⭐ FIXED: Bulletproof Authentication Context
   const loadDiagnosticsContext = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        window.location.href = '/login'
+        return
+      }
 
       const { data: adminData } = await supabase
         .from('admin_users')
@@ -87,7 +88,13 @@ export default function BulkImageUpload() {
         .eq('id', user.id)
         .maybeSingle()
 
-      const resolvedCompanyId = adminData?.company_id ?? 3
+      if (!adminData) {
+        toast.error("Unauthorized Access Channel.")
+        window.location.href = '/'
+        return
+      }
+
+      const resolvedCompanyId = Number(adminData.company_id)
       setAdminCompanyId(resolvedCompanyId)
 
       const products = await fetchAllProducts(resolvedCompanyId)
@@ -233,11 +240,16 @@ export default function BulkImageUpload() {
 
   // ⭐ THE LIVE STORAGE BUCKET PURGE EXECUTOR ROUTINE
   const executeStorageBucketFlush = async () => {
+    // Extra safety lock: Kick out anyone who isn't ID 3
+    if (adminCompanyId !== 3) {
+      toast.error("Security Block: Only Super Admins can purge storage buckets.");
+      return;
+    }
+
     setIsPurgingBucket(true)
     const purgeToast = toast.loading('Listing files inside product-images storage folder...')
 
     try {
-      // 1. Scan storage folder directory contents
       const { data: fileList, error: listError } = await supabase.storage
         .from('product-images')
         .list('products', { limit: 1000 })
@@ -247,10 +259,8 @@ export default function BulkImageUpload() {
       if (fileList && fileList.length > 0) {
         toast.loading(`Purging ${fileList.length} physical file binaries out of cloud buckets...`, { id: purgeToast })
         
-        // Map files into full target paths array strings
         const pathsToDelete = fileList.map(file => `products/${file.name}`)
 
-        // 2. Mass drop the mapped files array out of storage servers
         const { error: removeError } = await supabase.storage
           .from('product-images')
           .remove(pathsToDelete)
@@ -275,7 +285,6 @@ export default function BulkImageUpload() {
     }
   }
 
-  // TRIGGER MODAL FOR THE IMAGES STORAGE PURGE BUTTON
   const handlePurgeBucketClick = () => {
     setModal({
       isOpen: true,
@@ -298,22 +307,23 @@ export default function BulkImageUpload() {
   return (
     <div className="w-full max-w-3xl mx-auto pt-6 px-4 space-y-6 relative">
       
-      {/* HEADER ROW WITH INTEGRATED DEDICATED FLUSH CONTROL */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black text-gray-900 tracking-tight">Bulk Catalog Image Importer</h1>
           <p className="text-xs text-gray-400 mt-0.5">Automate inventory image mappings cleanly across company channels with web worker compression optimization.</p>
         </div>
         
-        {/* ⭐ THE SELF-CONTAINED FILE PURGE TRIGGER BUTTON */}
-        <button
-          type="button"
-          onClick={handlePurgeBucketClick}
-          disabled={uploading || isPurgingBucket || modal.isOpen}
-          className="w-full sm:w-auto px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-black border border-red-200 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40 active:scale-95 shadow-xs flex items-center justify-center gap-1.5 flex-shrink-0"
-        >
-          {isPurgingBucket ? 'Emptying Bucket...' : '🗑️ Purge Image Bucket'}
-        </button>
+        {/* ⭐ THE SELF-CONTAINED FILE PURGE TRIGGER BUTTON (SUPER ADMINS ONLY) */}
+        {adminCompanyId === 3 && (
+          <button
+            type="button"
+            onClick={handlePurgeBucketClick}
+            disabled={uploading || isPurgingBucket || modal.isOpen}
+            className="w-full sm:w-auto px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-black border border-red-200 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40 active:scale-95 shadow-xs flex items-center justify-center gap-1.5 flex-shrink-0"
+          >
+            {isPurgingBucket ? 'Emptying Bucket...' : '🗑️ Purge Image Bucket'}
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6 space-y-5">
@@ -391,7 +401,6 @@ export default function BulkImageUpload() {
 
       </div>
 
-      {/* ⭐ SELF-CONTAINED TAILWIND POPUP MODAL OVERLAY */}
       {modal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs transition-opacity animate-fade-in">
           <div className="bg-white border border-gray-100 rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4 transform scale-100 transition-all duration-200">

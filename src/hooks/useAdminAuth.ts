@@ -28,7 +28,7 @@ export function useAdminAuth() {
 
       const { data, error } = await supabase
         .from('admin_users')
-        .select('role', 'company_id')
+        .select('role, company_id')
         .eq('id', user.id)
         .maybeSingle()
 

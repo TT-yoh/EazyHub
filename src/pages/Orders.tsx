@@ -2,11 +2,16 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { toast } from 'react-hot-toast'
+import { calculateHistoricalDeliveryBreakdown } from '../utils/pricing'
 
 export default function Orders() {
   const navigate = useNavigate()
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [logisticsConfig, setLogisticsConfig] = useState({
+    mineazy: { basePrice: 15.00, pricePerKm: 2.50 },
+    farmeazy: { basePrice: 5.00, pricePerKm: 1.00 }
+  })
 
   // Isolated fetch logic joined with child relational arrays
   const fetchUserOrders = async () => {
@@ -17,29 +22,60 @@ export default function Orders() {
         return
       }
 
-      // 🔗 RELATIONAL JOIN: Fetches the order, the delivery surcharge column, and child line items text
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          id,
-          order_number,
-          created_at,
-          status,
-          total_amount,
-          delivery_fee,
-          order_items (
-            id,
-            quantity,
-            products (
-              Name
-            )
-          )
-        `)
-        .eq('customer_id', user.id)
-        .order('created_at', { ascending: false })
+        // 🔗 RELATIONAL JOIN: Fetches the order, the delivery surcharge column, and child line items text
+        const [ordersRes, settingsRes] = await Promise.all([
+          supabase
+            .from('orders')
+            .select(`
+              id,
+              order_number,
+              created_at,
+              status,
+              total_amount,
+              delivery_fee,
+              delivery_lat,
+              delivery_lng,
+              order_items (
+                id,
+                quantity,
+                products (
+                  Name,
+                  company
+                )
+              )
+            `)
+            .eq('customer_id', user.id)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('app_settings')
+            .select('meta_key, meta_value')
+            .in('meta_key', ['mineazy_base_price', 'mineazy_price_per_km', 'farmeazy_base_price', 'farmeazy_price_per_km'])
+        ])
 
-      if (error) throw error
-      setOrders(data || [])
+      if (ordersRes.error) throw ordersRes.error
+      
+      let currentLogisticsConfig = logisticsConfig;
+      if (settingsRes.data) {
+        const mBase = settingsRes.data.find(r => r.meta_key === 'mineazy_base_price')?.meta_value
+        const mKm = settingsRes.data.find(r => r.meta_key === 'mineazy_price_per_km')?.meta_value
+        const fBase = settingsRes.data.find(r => r.meta_key === 'farmeazy_base_price')?.meta_value
+        const fKm = settingsRes.data.find(r => r.meta_key === 'farmeazy_price_per_km')?.meta_value
+        
+        currentLogisticsConfig = {
+          mineazy: { basePrice: mBase ? Number(mBase) : 15.00, pricePerKm: mKm ? Number(mKm) : 2.50 },
+          farmeazy: { basePrice: fBase ? Number(fBase) : 5.00, pricePerKm: fKm ? Number(fKm) : 1.00 }
+        }
+        setLogisticsConfig(currentLogisticsConfig)
+      }
+      
+      const processedOrders = (ordersRes.data || []).map(order => {
+        const hasMineazy = order.order_items.some((i: any) => i.products?.company === 1)
+        const hasFarmeazy = order.order_items.some((i: any) => i.products?.company === 2)
+        const breakdown = calculateHistoricalDeliveryBreakdown(order.delivery_fee, order.delivery_lat, order.delivery_lng, hasMineazy, hasFarmeazy, currentLogisticsConfig)
+        return { ...order, breakdown }
+      })
+
+      setOrders(processedOrders)
     } catch (err) {
       console.error("Error fetching order manifest matrix:", err)
       toast.error("Failed to load your order history.")
@@ -165,9 +201,11 @@ export default function Orders() {
                         ${grandTotalDisplay.toFixed(2)}
                       </span>
                       {deliverySurcharge > 0 && (
-                        <span className="text-[10px] text-gray-400 font-medium font-mono">
-                          (inc. ${deliverySurcharge.toFixed(2)} delivery)
-                        </span>
+                        <div className="text-[10px] text-gray-400 font-medium font-mono flex flex-col">
+                          <span>(inc. ${deliverySurcharge.toFixed(2)} delivery)</span>
+                          {order.breakdown?.mineazyFee > 0 && <span>- Mineazy: ${order.breakdown.mineazyFee.toFixed(2)}</span>}
+                          {order.breakdown?.farmeazyFee > 0 && <span>- Farmeazy: ${order.breakdown.farmeazyFee.toFixed(2)}</span>}
+                        </div>
                       )}
                     </div>
                   </div>

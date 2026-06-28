@@ -3,196 +3,84 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { toast } from 'react-hot-toast'
 
-export default function PaymentSandbox() {
+export default function PaymentSandbox() { // Kept name same so App.tsx routing doesn't break
   const { orderId } = useParams<{ orderId: string }>()
   const navigate = useNavigate()
   
   const [order, setOrder] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [processing, setProcessing] = useState(false)
-  const [paymentPhone, setPaymentPhone] = useState('')
+  const [attempts, setAttempts] = useState(0)
 
+  // Polling logic: Checks Supabase every 3 seconds to see if Paynow webhook cleared the payment
   useEffect(() => {
-    async function fetchOrderForPayment() {
-      if (!orderId) return
+    if (!orderId) return;
+
+    let interval: ReturnType<typeof setInterval>;
+
+    async function checkPaymentStatus() {
       try {
-        setLoading(true)
-        
-        // Pull the matching order info to verify invoice parameters
         const { data, error } = await supabase
           .from('orders')
-          .select('id, order_number, total_amount, delivery_fee, payment_method, customer_id')
+          .select('id, payment_status')
           .eq('id', orderId)
           .maybeSingle()
 
-        if (error) throw error
-        if (!data) {
-          toast.error('Target payment reference non-existent.')
-          navigate('/orders')
-          return
+        if (error || !data) return;
+        setOrder(data);
+
+        if (data.payment_status === 'paid') {
+          clearInterval(interval);
+          toast.success('Payment Verified! Your order is now processing.');
+          navigate('/orders');
+        } else if (data.payment_status === 'failed') {
+          clearInterval(interval);
+          toast.error('Payment Failed or Cancelled.');
+          navigate('/orders');
         }
-
-        setOrder(data)
-        
-        // Safely map down the client's phone digits if stored
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('phone')
-          .eq('id', data.customer_id)
-          .maybeSingle()
-          
-        if (customer?.phone) setPaymentPhone(customer.phone)
-
       } catch (err) {
         console.error(err)
-        toast.error('Failed parsing transaction balance records.')
       } finally {
         setLoading(false)
+        setAttempts(prev => prev + 1)
       }
     }
 
-    fetchOrderForPayment()
-  }, [orderId, navigate])
+    // Initial check
+    checkPaymentStatus()
 
-  if (loading) return <div className="text-center py-20 font-mono text-xs text-gray-400">Opening Secure Paynow Gateway Channel Node...</div>
+    // Poll every 3 seconds
+    interval = setInterval(() => {
+      checkPaymentStatus()
+    }, 3000)
 
-  // Unified accounting arithmetic rules matrix
-  const subtotal = Number(order?.total_amount || 0)
-  const delivery = Number(order?.delivery_fee || 0)
-  const grandTotal = subtotal + delivery
-  
-  const mockPaynowRef = `PAYNOW-SB-${Date.now().toString().slice(-6)}`
-
-  const handleSimulatePayment = async (simulateSuccess: boolean) => {
-    setProcessing(true)
-    const statusToast = toast.loading(simulateSuccess ? 'Simulating USSD push response...' : 'Cancelling payment link routing...')
-    
-    try {
-      if (simulateSuccess) {
-        // 1. Write transactional tracking row using your exact column types schema matrix
-        const { error: paymentError } = await supabase
-          .from('payments')
-          .insert({
-            order_id: order.id,
-            amount: grandTotal,
-            method: order.payment_method,
-            reference: mockPaynowRef,
-            status: 'completed', // ⭐ MATCHES YOUR BADGE CHECKER: Triggers your dashboard '✅ Paid' flag
-            customer_screenshot_url: null,
-            verified_by: null,
-            verified_at: null
-          })
-
-        if (paymentError) throw paymentError
-
-        // 2. Transition parent order tracking status markers into corporate visibility queues
-        const { error: orderUpdateError } = await supabase
-          .from('orders')
-          .update({ 
-            status: 'processing',
-            payment_status: 'paid' 
-          })
-          .eq('id', order.id)
-
-        if (orderUpdateError) throw orderUpdateError
-
-        toast.success('Transaction Authenticated! Gateway funds captured.', { id: statusToast })
-        navigate('/orders') // Route back to client history tracker card list
-      } else {
-        // Simulate fallback cancellation routines seamlessly
-        await supabase
-          .from('payments')
-          .insert({
-            order_id: order.id,
-            amount: grandTotal,
-            method: order.payment_method,
-            reference: mockPaynowRef,
-            status: 'failed'
-          })
-
-        toast.error('Transaction processing terminated by customer request.', { id: statusToast })
-        navigate('/orders')
-      }
-    } catch (err: any) {
-      console.error(err)
-      toast.error(`Sandbox processing breakdown: ${err.message}`, { id: statusToast })
-    } finally {
-      setProcessing(false)
+    // Timeout after 60 seconds (20 attempts) to prevent infinite loops
+    if (attempts >= 20) {
+      clearInterval(interval)
+      toast.error('Payment verification timed out. Please check your order history.')
+      navigate('/orders')
     }
-  }
+
+    return () => clearInterval(interval)
+  }, [orderId, navigate, attempts])
+
+  if (loading) return null;
 
   return (
-    <div className="w-full max-w-md mx-auto pt-8 pb-20 px-4">
-      {/* Paynow Simulated Brand Header Card */}
-      <div className="bg-[#E5812B] text-white rounded-t-2xl p-5 text-center shadow-sm">
-        <div className="text-[10px] font-black uppercase tracking-widest bg-black/20 inline-block px-2.5 py-0.5 rounded-md mb-2 font-mono">
-          Paynow Sandbox Environment
+    <div className="w-full max-w-md mx-auto pt-16 pb-20 px-4 text-center">
+      <div className="bg-white border border-gray-200 rounded-3xl p-8 shadow-xl">
+        <div className="w-20 h-20 mx-auto mb-6">
+          {/* Animated loading ring */}
+          <div className="w-full h-full border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
         </div>
-        <h1 className="text-2xl font-black tracking-tight lowercase">paynow</h1>
-        <p className="text-xs text-orange-100/90 mt-1">Inter-Merchant Mobile Settlement Gateway Mockup</p>
-      </div>
-
-      {/* Interactive Terminal Interface Wrapper */}
-      <div className="bg-white border-x border-b border-gray-200 rounded-b-2xl p-5 space-y-5 shadow-lg">
         
-        {/* Ledger Balance Statement Info box */}
-        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Statement Amount Requested</span>
-          <span className="text-3xl font-black text-gray-900 mt-1 block font-mono">
-            ${grandTotal.toFixed(2)}
-          </span>
-          <div className="flex justify-center gap-3 text-[9px] font-mono text-gray-400 mt-2.5 pt-2.5 border-t border-gray-100">
-            <span>Ticket: {order?.order_number}</span>
-            <span>Gateway: <span className="uppercase text-orange-600 font-black">{order?.payment_method}</span></span>
-          </div>
+        <h1 className="text-2xl font-black text-gray-900 mb-2 tracking-tight">Verifying Payment</h1>
+        <p className="text-sm text-gray-500 leading-relaxed mb-6">
+          Waiting for confirmation from Paynow... Please do not close this window.
+        </p>
+        
+        <div className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-gray-50 py-2 rounded-lg">
+          Order Ref: {order?.id?.split('-')[0]}
         </div>
-
-        {/* Mock Input Interface Field Card */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider block">
-            Payer Handset Mobile Number
-          </label>
-          <input 
-            type="tel"
-            placeholder="e.g. 077XXXXXXX"
-            value={paymentPhone}
-            onChange={(e) => setPaymentPhone(e.target.value)}
-            disabled={processing}
-            className="w-full p-3 bg-gray-50 text-sm font-mono font-bold text-gray-800 border border-gray-200 rounded-xl outline-none focus:border-[#E5812B] focus:bg-white transition-all shadow-inner"
-          />
-          <span className="text-[9px] text-gray-400 leading-tight block">
-            Simulates firing an active cryptographic secure background push pin request straight to your mobile network account balance line.
-          </span>
-        </div>
-
-        {/* Control Operation Execution Triggers Set */}
-        <div className="space-y-2 pt-2">
-          <button
-            type="button"
-            onClick={() => handleSimulatePayment(true)}
-            disabled={processing}
-            className="w-full py-3.5 bg-green-600 hover:bg-green-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-sm active:scale-[0.99] disabled:opacity-40"
-          >
-            {processing ? 'Processing Sandbox Authorization...' : '✔️ Authorize Simulated Settlement'}
-          </button>
-          
-          <button
-            type="button"
-            onClick={() => handleSimulatePayment(false)}
-            disabled={processing}
-            className="w-full py-3 text-gray-400 hover:text-red-600 hover:bg-red-50 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border border-transparent hover:border-red-100 text-center block"
-          >
-            Decline & Void Purchase Ticket
-          </button>
-        </div>
-
-        {/* Safety Disclaimer Warning Panel */}
-        <div className="border-t border-dashed border-gray-100 pt-3 text-center">
-          <span className="text-[9px] text-gray-400 font-medium leading-relaxed block">
-            This module is handling mockup sandbox metrics exclusively. No electronic mobile wallet currency reserves will be checked, processed, or moved.
-          </span>
-        </div>
-
       </div>
     </div>
   )

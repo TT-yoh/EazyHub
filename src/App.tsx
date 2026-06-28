@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import Layout from './components/Layout'
@@ -22,12 +22,24 @@ import type { Session } from '@supabase/supabase-js'
 import toast, { Toaster } from 'react-hot-toast' 
 import SuperConsole from './pages/SuperConsole'
 import AdminLogistics from './pages/admin/AdminLogistics'
+import AdminAnalytics from './pages/admin/AdminAnalytics'
 import PaymentSandbox from './components/PaymentSandbox'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [isAdmin, setIsAdmin] = useState(false)
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+      staleTime: 5 * 60 * 1000,
+    },
+  },
+})
+
+// Inner component to allow using useNavigate hook from react-router-dom
+function AppContent({ session, isAdmin, setIsAdmin }: { session: Session | null, isAdmin: boolean, setIsAdmin: (val: boolean) => void }) {
+  const navigate = useNavigate();
 
   // ========================================================
   // ⭐ COLD-HIT TRUE INSTANT BROADCAST SECURITY CONTROLLER
@@ -41,7 +53,7 @@ export default function App() {
     const globalRoleSubscription = supabase
       .channel(customChannelName, {
         config: {
-          broadcast: { self: false }, // Disables loopback processing to save client cycles
+          broadcast: { self: false }, 
         },
       })
       .on(
@@ -51,22 +63,22 @@ export default function App() {
           const eventType = payload.payload?.type || payload.type
           const recordData = payload.payload?.record || payload.record
 
-          // Guard Clause: Instantly escape if the packet is meant for another user record row
           if (recordData && recordData.id !== currentUserId) return
 
-          // ⚡ BYPASS REACT RENDER CYCLES FOR TRUE ZERO-DELAY EXECUTION
+          // ⚡ GRACEFULLY DOWNGRADE OR UPGRADE UI WITHOUT HARD RELOADS
           if (eventType === 'INSERT') {
-            localStorage.setItem('show_promotion_toast', 'true')
-            window.location.href = window.location.href 
+            setIsAdmin(true);
+            toast.success('🎉 You have been granted Administrative access!')
           }
           
           else if (eventType === 'DELETE') {
-            window.location.href = '/?access_revoked=true' 
+            setIsAdmin(false);
+            toast.error('🔒 Your Administrative access has been revoked.')
+            navigate('/');
           }
 
           else if (eventType === 'UPDATE') {
-            localStorage.setItem('show_update_toast', 'true')
-            window.location.href = window.location.href 
+            toast.error('⚠️ Administrative clearance updated. Synchronized permissions successfully.')
           }
         }
       )
@@ -75,31 +87,83 @@ export default function App() {
     return () => {
       supabase.removeChannel(globalRoleSubscription)
     }
-  }, [session])
+  }, [session, navigate, setIsAdmin])
+
+  return (
+    <>
+      <Toaster 
+        position="top-right" 
+        reverseOrder={false} 
+        toastOptions={{
+          duration: 4000,
+          style: {
+            fontFamily: 'sans-serif',
+            borderRadius: '14px',
+            padding: '12px 16px',
+            fontSize: '12px',
+            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05)',
+          },
+          success: {
+            style: { background: '#ffffff', color: '#111827', border: '1px solid #e5e7eb', fontWeight: '700' },
+            iconTheme: { primary: '#22c55e', secondary: '#ffffff' },
+          },
+          error: {
+            style: { background: '#fef2f2', color: '#991b1b', border: '1px solid #fee2e2', fontWeight: '700' },
+            iconTheme: { primary: '#ef4444', secondary: '#ffffff' },
+          },
+        }}
+      />
+
+      <ErrorBoundary>
+        <Routes>
+          {/* Auth Entry Blocks - Only accessible if NOT logged in */}
+          <Route path="/login" element={!session ? <Login /> : <Navigate to="/" replace />} />
+          <Route path="/signup" element={!session ? <Signup /> : <Navigate to="/" replace />} />
+          <Route path="/forgot-password" element={!session ? <ForgotPassword /> : <Navigate to="/" replace />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+
+          {/* ⭐ FULLY LOCKED DOWN STOREFRONT - Redirects to /login if no session */}
+          <Route element={session ? <Layout isAdmin={isAdmin} /> : <Navigate to="/login" replace />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/cart" element={<Cart />} />
+            <Route path="/checkout" element={<Checkout />} />
+            <Route path="/payment/sandbox/:orderId" element={<PaymentSandbox />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/orders/:id" element={<OrderDetail />} />
+            <Route path="/profile" element={<Profile />} />
+          </Route>
+
+          {/* Administrative Storefront Control Modules */}
+          <Route path="/admin" element={session && isAdmin ? <AdminLayout /> : <Navigate to="/" replace />}>
+            <Route index element={<Navigate to="orders" />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="products" element={<AdminProducts />} />
+            <Route path="products/edit/:id" element={<AdminProducts />} />
+            <Route path="products/new" element={<AdminProducts />} />
+            <Route path="logistics" element={<AdminLogistics />} />
+            <Route path="upload" element={<AdminUpload />} />
+            <Route path="upload-images" element={<BulkImageUpload />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="super-console" element={<SuperConsole />} /> 
+            <Route path="orders/:id" element={<OrderDetail />} />
+          </Route>
+
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </ErrorBoundary>
+    </>
+  );
+}
+
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // ========================================================
-  // ⭐ PERSISTENT TOAST DISPATCHER AFTER FORCE CACHE RESETS
-  // ========================================================
-  useEffect(() => {
-    if (localStorage.getItem('show_promotion_toast') === 'true') {
-      toast.success('🎉 You have been granted Administrative access!')
-      localStorage.removeItem('show_promotion_toast')
-    }
-
-    if (localStorage.getItem('show_update_toast') === 'true') {
-      toast.error('⚠️ Administrative clearance updated. Synchronized permissions successfully.')
-      localStorage.removeItem('show_update_toast')
-    }
-
-    const urlParams = new URLSearchParams(window.location.search)
-    if (urlParams.get('access_revoked') === 'true') {
-      toast.error('🔒 Your Administrative access has been revoked.')
-      window.history.replaceState({}, document.title, window.location.pathname)
-    }
-  }, [session])
-
-  // ========================================================
-  // CORE CORE AUTH INITIALIZATION ENGINE
+  // CORE AUTH INITIALIZATION ENGINE
   // ========================================================
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -153,81 +217,10 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Toaster 
-        position="top-right" 
-        reverseOrder={false} 
-        toastOptions={{
-          duration: 4000,
-          style: {
-            fontFamily: 'sans-serif',
-            borderRadius: '14px',
-            padding: '12px 16px',
-            fontSize: '12px',
-            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05)',
-          },
-          success: {
-            style: {
-              background: '#ffffff',
-              color: '#111827',
-              border: '1px solid #e5e7eb',
-              fontWeight: '700',
-            },
-            iconTheme: {
-              primary: '#22c55e', 
-              secondary: '#ffffff',
-            },
-          },
-          error: {
-            style: {
-              background: '#fef2f2', 
-              color: '#991b1b',      
-              border: '1px solid #fee2e2',
-              fontWeight: '700',
-            },
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#ffffff',
-            },
-          },
-        }}
-      />
-
-      <Routes>
-        {/* Auth Entry Blocks */}
-        <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
-        <Route path="/signup" element={!session ? <Signup /> : <Navigate to="/" />} />
-        <Route path="/forgot-password" element={!session ? <ForgotPassword /> : <Navigate to="/" />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-
-        {/* Storefront Layout Interface Modules */}
-        <Route element={<Layout isAdmin={isAdmin} />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/cart" element={session ? <Cart /> : <Navigate to="/login" />} />
-          <Route path="/checkout" element={session ? <Checkout /> : <Navigate to="/login" />} />
-          <Route path="/payment/sandbox/:orderId" element={<PaymentSandbox />} />
-          <Route path="/orders" element={session ? <Orders /> : <Navigate to="/login" />} />
-          <Route path="/orders/:id" element={session ? <OrderDetail /> : <Navigate to="/login" />} />
-          <Route path="/profile" element={session ? <Profile /> : <Navigate to="/login" />} />
-        </Route>
-
-        {/* Administrative Storefront Control Modules */}
-        <Route path="/admin" element={session && isAdmin ? <AdminLayout /> : <Navigate to="/" />}>
-          <Route index element={<Navigate to="orders" />} />
-          <Route path="orders" element={<AdminOrders />} />
-          <Route path="products" element={<AdminProducts />} />
-          <Route path="products/edit/:id" element={<AdminProducts />} />
-          <Route path="products/new" element={<AdminProducts />} />
-          <Route path="logistics" element={<AdminLogistics />} />
-          <Route path="upload" element={<AdminUpload />} />
-          <Route path="upload-images" element={<BulkImageUpload />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="super-console" element={<SuperConsole />} /> 
-          <Route path="orders/:id" element={<OrderDetail />} />
-        </Route>
-
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AppContent session={session} isAdmin={isAdmin} setIsAdmin={setIsAdmin} />
+      </BrowserRouter>
+    </QueryClientProvider>
   )
 }

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 
 export default function Profile() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
+  // Removed unused loading state
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -34,7 +34,7 @@ export default function Profile() {
       setPhone(profile.phone || '')
       setLocation(profile.location || '')
     }
-    setLoading(false)
+    // Loading state removed
   }
 
   const saveProfile = async () => {
