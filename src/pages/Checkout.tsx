@@ -2,40 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCartStore } from '../store/cartStore'
 import { supabase, GOOGLE_MAPS_API_KEY } from '../lib/supabase'
-import { GoogleMap, useJsApiLoader } from '@react-google-maps/api'
+import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api'
 import { toast } from 'react-hot-toast'
 
 const DEFAULT_CENTER = { lat: -20.1406, lng: 28.5833 } 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '350px' }
 
-const MAP_OPTIONS = { disableDefaultUI: false, zoomControl: true, streetViewControl: false, mapId: "DEMO_MAP_ID" }
-
-function CustomAdvancedMarker({ position, map, onDragEnd }: { position: google.maps.LatLngLiteral; map?: google.maps.Map | null; onDragEnd: (e: google.maps.MapMouseEvent) => void }) {
-  const markerRef = useRef<any>(null);
-  useEffect(() => {
-    if (!map || !window.google) return;
-    let nativeMarker: any = null;
-    let listener: any = null;
-    async function initDraggableMarker() {
-      try {
-        const { AdvancedMarkerElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
-        nativeMarker = new AdvancedMarkerElement({ map, position, gmpDraggable: true });
-        markerRef.current = nativeMarker;
-        listener = nativeMarker.addListener('dragend', (e: any) => {
-          if (e.latLng) onDragEnd({ latLng: { lat: () => e.latLng.lat(), lng: () => e.latLng.lng() } } as any);
-        });
-      } catch (err) {}
-    }
-    initDraggableMarker();
-    return () => {
-      if (nativeMarker) nativeMarker.map = null;
-      if (listener) listener.remove();
-      markerRef.current = null;
-    };
-  }, [map]); 
-  useEffect(() => { if (markerRef.current) markerRef.current.position = position; }, [position]);
-  return null;
-}
+const MAP_OPTIONS = { disableDefaultUI: false, zoomControl: true, streetViewControl: false }
 
 export default function Checkout() {
   const navigate = useNavigate()
@@ -247,7 +220,7 @@ export default function Checkout() {
         <div className="rounded-xl overflow-hidden border shadow-inner mb-4">
           {isLoaded ? (
             <GoogleMap mapContainerStyle={MAP_CONTAINER_STYLE} center={mapCenter} zoom={14} options={MAP_OPTIONS} onLoad={(map) => setActiveMapRef(map)} onUnmount={() => setActiveMapRef(null)}>
-              <CustomAdvancedMarker position={markerPosition} map={activeMapRef} onDragEnd={handleMarkerDragEnd} />
+              <MarkerF position={markerPosition} draggable={true} onDragEnd={handleMarkerDragEnd} />
             </GoogleMap>
           ) : <div className="h-[350px] w-full bg-gray-100 flex items-center justify-center text-gray-400">Loading map data...</div>}
         </div>
