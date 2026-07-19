@@ -1,14 +1,30 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCartStore } from '../store/cartStore'
-import { supabase, GOOGLE_MAPS_API_KEY } from '../lib/supabase'
-import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api'
+import { supabase } from '../lib/supabase'
 import { toast } from 'react-hot-toast'
+import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
+import L from 'leaflet'
 
-const DEFAULT_CENTER = { lat: -20.1406, lng: 28.5833 } 
-const MAP_CONTAINER_STYLE = { width: '100%', height: '350px' }
+import icon from 'leaflet/dist/images/marker-icon.png'
+import iconShadow from 'leaflet/dist/images/marker-shadow.png'
 
-const MAP_OPTIONS = { disableDefaultUI: false, zoomControl: true, streetViewControl: false }
+const DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41]
+})
+L.Marker.prototype.options.icon = DefaultIcon
+
+const DEFAULT_CENTER = { lat: -20.1406, lng: 28.5833 }
+
+function RecenterMap({ position }: { position: { lat: number, lng: number } }) {
+  const map = useMap()
+  useEffect(() => { map.panTo([position.lat, position.lng]) }, [position, map])
+  return null
+}
 
 export default function Checkout() {
   const navigate = useNavigate()
@@ -21,8 +37,7 @@ export default function Checkout() {
 
   const [markerPosition, setMarkerPosition] = useState(DEFAULT_CENTER)
   const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER)
-  const [fetchingGPS, setFetchingGPS] = useState(false) 
-  const [activeMapRef, setActiveMapRef] = useState<google.maps.Map | null>(null)
+  const [fetchingGPS, setFetchingGPS] = useState(false)
   
   const [logistics, setLogistics] = useState({
     mineazy: { basePrice: 15.00, pricePerKm: 2.50 },
@@ -31,7 +46,6 @@ export default function Checkout() {
   
   const [distance, setDistance] = useState(0)
   const [deliveryFees, setDeliveryFees] = useState({ mineazy: 0, farmeazy: 0, total: 0 })
-  const { isLoaded } = useJsApiLoader({ id: 'google-map-script', googleMapsApiKey: GOOGLE_MAPS_API_KEY })
 
   // ⚡ BLAZING FAST PARALLEL CHECKOUT INIT
   useEffect(() => {
@@ -92,7 +106,6 @@ export default function Checkout() {
       (position) => {
         const currentCoords = { lat: position.coords.latitude, lng: position.coords.longitude }
         setMarkerPosition(currentCoords); setMapCenter(currentCoords); reverseGeocode(currentCoords.lat, currentCoords.lng);
-        if (activeMapRef) activeMapRef.panTo(currentCoords)
         toast.success('Location locked successfully!', { id: gpsToast })
         setFetchingGPS(false)
       },
@@ -132,23 +145,29 @@ export default function Checkout() {
   }, [markerPosition, logistics, items])
 
   const reverseGeocode = async (lat: number, lng: number) => {
-    if (!window.google) return
     try {
-      const { Geocoder } = await google.maps.importLibrary("geocoding") as google.maps.GeocodingLibrary;
-      const geocoder = new Geocoder()
-      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-        if (status === 'OK' && results?.[0]) setDeliveryLocation(results[0].formatted_address)
-        else setDeliveryLocation(`Coordinates Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
-      })
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+      const data = await response.json()
+      if (data && data.display_name) {
+        setDeliveryLocation(data.display_name)
+      } else {
+        setDeliveryLocation(`Coordinates Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+      }
     } catch (err) { setDeliveryLocation(`Coordinates Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`) }
   }
 
-  const handleMarkerDragEnd = (e: google.maps.MapMouseEvent) => {
-    if (!e.latLng) return
-    const updatedCoords = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-    setMarkerPosition(updatedCoords)
-    reverseGeocode(updatedCoords.lat, updatedCoords.lng)
-  }
+  const markerRef = useRef<L.Marker>(null)
+  const eventHandlers = useMemo(() => ({
+    dragend() {
+      const marker = markerRef.current
+      if (marker != null) {
+        const position = marker.getLatLng()
+        const updatedCoords = { lat: position.lat, lng: position.lng }
+        setMarkerPosition(updatedCoords)
+        reverseGeocode(updatedCoords.lat, updatedCoords.lng)
+      }
+    },
+  }), [])
 
   const subtotal = getSubtotal()
   const total = subtotal + deliveryFees.total
@@ -217,12 +236,20 @@ export default function Checkout() {
           </button>
         </div>
 
-        <div className="rounded-xl overflow-hidden border shadow-inner mb-4">
-          {isLoaded ? (
-            <GoogleMap mapContainerStyle={MAP_CONTAINER_STYLE} center={mapCenter} zoom={14} options={MAP_OPTIONS} onLoad={(map) => setActiveMapRef(map)} onUnmount={() => setActiveMapRef(null)}>
-              <MarkerF position={markerPosition} draggable={true} onDragEnd={handleMarkerDragEnd} />
-            </GoogleMap>
-          ) : <div className="h-[350px] w-full bg-gray-100 flex items-center justify-center text-gray-400">Loading map data...</div>}
+        <div className="rounded-xl overflow-hidden border shadow-inner mb-4 h-[350px] relative z-0">
+          <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={14} scrollWheelZoom={true} style={{ height: '100%', width: '100%' }}>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <Marker 
+              position={[markerPosition.lat, markerPosition.lng]} 
+              draggable={true} 
+              eventHandlers={eventHandlers} 
+              ref={markerRef} 
+            />
+            <RecenterMap position={mapCenter} />
+          </MapContainer>
         </div>
         <input type="text" readOnly value={deliveryLocation} className="w-full p-3 bg-gray-50 text-gray-600 text-sm border border-gray-200 rounded-xl outline-none" />
       </div>
