@@ -31,18 +31,13 @@ export default defineConfig({
         scope: '/',
         start_url: '/',
         icons: [
-          { src: '/icons/icon-72x72.png', sizes: '72x72', type: 'image/png' },
-          { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' } // 🎯 Required for adaptive Android app launch rings
-        ]
+          { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/favicon.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' },
+        ],
       }
     })
   ],
   server: {
-    // Allows external tunnel services like ngrok to connect for live testing on mobile
-    allowedHosts: [
-      'paging-coleslaw-herbs.ngrok-free.dev' 
-    ]
-  }
+    allowedHosts: process.env.VITE_DEV_TUNNEL_HOST ? [process.env.VITE_DEV_TUNNEL_HOST] : true,
+  },
 })

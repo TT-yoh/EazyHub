@@ -175,36 +175,42 @@ export default function Checkout() {
   const placeOrder = async () => {
     if (!deliveryLocation) { toast.error('Please specify your destination by dropping a waypoint marker map pin.'); return }
     setLoading(true)
-    const initToast = toast.loading('Initializing secure Paynow checkout...')
+    const initToast = toast.loading('Creating order and opening Paynow...')
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { navigate('/login'); return; }
+      if (!user) { navigate('/login'); return }
 
-      const orderNumber = `EZ-${Date.now()}`
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({ order_number: orderNumber, customer_id: user.id, total_amount: subtotal, payment_method: paymentMethod, delivery_location: deliveryLocation, delivery_fee: deliveryFees.total, delivery_lat: markerPosition.lat, delivery_lng: markerPosition.lng, status: 'pending', payment_status: 'pending' })
-        .select().single()
-
-      if (orderError) throw orderError
-
-      const orderItemsPayload = items.map(item => ({ order_id: order.id, product_id: item.product_id, quantity: Number(item.quantity), price_at_time: Number(item.price) }))
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItemsPayload)
-      if (itemsError) throw itemsError
+      const { data: created, error: createError } = await supabase.functions.invoke('create-order', {
+        body: {
+          lines: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity })),
+          deliveryLocation,
+          deliveryLat: markerPosition.lat,
+          deliveryLng: markerPosition.lng,
+          paymentMethod,
+        },
+      })
+      if (createError) throw createError
+      if (!created?.success || !created.orderId) {
+        throw new Error(created?.error || 'Could not create order')
+      }
 
       clearCart()
 
-      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('paynow-checkout', { body: { orderId: order.id, amount: total, customerEmail: user.email || 'guest@eazyhub.com' } })
+      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('paynow-checkout', {
+        body: { orderId: created.orderId },
+      })
       if (edgeError) throw edgeError
 
-      if (edgeData && edgeData.success && edgeData.redirectUrl) {
-        toast.success('Redirecting to Paynow Secure Gateway...', { id: initToast })
+      if (edgeData?.success && edgeData.redirectUrl) {
+        toast.success('Redirecting to Paynow...', { id: initToast })
         window.location.href = edgeData.redirectUrl
-      } else throw new Error(edgeData?.error || "Invalid response from Paynow Gateway")
-
-    } catch (err: any) {
-      toast.error(`Transaction Rejected: ${err.message || 'Check network connection.'}`, { id: initToast })
+      } else {
+        throw new Error(edgeData?.error || 'Invalid response from Paynow Gateway')
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Check network connection.'
+      toast.error(`Transaction rejected: ${message}`, { id: initToast })
       setLoading(false)
     }
   }

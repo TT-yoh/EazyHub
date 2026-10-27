@@ -1,73 +1,59 @@
-# React + TypeScript + Vite
+# EazyHub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Installable marketplace and logistics PWA for multi-vendor ordering (Mineazy, Farmeazy), checkout with map-based delivery fees, Paynow payments, and an admin console.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19 + TypeScript + Vite (PWA)
+- Supabase (Auth, Postgres, Storage, Edge Functions)
+- TanStack Query, Zustand, Tailwind CSS
 
-## React Compiler
+## Local development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Copy `.env.example` to `.env.local` and set Supabase keys.
+2. `npm install`
+3. `npm run dev`
 
-## Expanding the ESLint configuration
+## Supabase setup
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. Link your project and apply RLS policies:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+   ```bash
+   supabase db push
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+2. Deploy edge functions:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+   ```bash
+   supabase functions deploy create-order
+   supabase functions deploy paynow-checkout
+   supabase functions deploy paynow-webhook
+   supabase functions deploy admin-action
+   supabase functions deploy email-notifications
+   ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+3. Set function secrets: `PAYNOW_INTEGRATION_ID`, `PAYNOW_INTEGRATION_KEY`, `SITE_URL` (public app URL), optional `RESEND_API_KEY`, `HUB_LAT`, `HUB_LNG`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+4. Configure Paynow **result URL** to your `paynow-webhook` function URL (also set automatically when checkout runs).
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Install as an app
+
+- **Android / Chrome:** open the site → “Add to Home Screen” (or use the in-app prompt).
+- **iOS Safari:** Share → Add to Home Screen.
+
+The PWA uses `vite-plugin-pwa` with auto-updating service worker caching.
+
+## Security model
+
+- Orders are created on the server (`create-order`) with DB prices and stock checks.
+- Paynow amounts are computed server-side; webhooks validate Paynow SHA-512 hashes.
+- Admin promotion and company creation go through `admin-action` (super admin only).
+- Postgres RLS policies in `supabase/migrations/` restrict client access.
+
+## Scripts
+
+| Command        | Description              |
+|----------------|--------------------------|
+| `npm run dev`  | Dev server               |
+| `npm run build`| Production build         |
+| `npm run preview` | Preview production build |

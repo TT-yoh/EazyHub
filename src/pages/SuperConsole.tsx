@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAdminAuth } from '../hooks/useAdminAuth'
+import { invokeAdminAction } from '../lib/invokeAdminAction'
 
 export default function SuperConsole() {
   const { isSuperAdmin, checking } = useAdminAuth()
@@ -35,16 +36,20 @@ export default function SuperConsole() {
     e.preventDefault()
     setMsg('Processing configuration change...')
 
-    const { error } = await supabase.from('admin_users').insert([{
-      id: targetId.trim(),
-      email: targetEmail.trim(),
-      role: adminRole,
-      company_id: adminRole === 'super_admin' ? null : parseInt(assignedCompany)
-    }])
+    try {
+      await invokeAdminAction({
+        action: 'grant_admin',
+        userId: targetId.trim(),
+        email: targetEmail.trim(),
+        role: adminRole,
+        companyId: adminRole === 'super_admin' ? null : parseInt(assignedCompany, 10),
+      })
+    } catch (error) {
+      setMsg(`System error fault: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      return
+    }
 
-    if (error) {
-      setMsg(`System error fault: ${error.message}`)
-    } else {
+    {
       setMsg('🎉 New Administrator record mapped and authorized successfully!')
       setTargetId('')
       setTargetEmail('')
@@ -56,15 +61,19 @@ export default function SuperConsole() {
     e.preventDefault()
     setMsg('Registering business node operations...')
 
-    const { error } = await supabase.from('companies').insert([{
-      name: newCompanyName,
-      short_name: newCompanyShort,
-      icon: newCompanyIcon
-    }])
+    try {
+      await invokeAdminAction({
+        action: 'create_company',
+        name: newCompanyName,
+        short_name: newCompanyShort,
+        icon: newCompanyIcon,
+      })
+    } catch (error) {
+      setMsg(`Execution exception: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      return
+    }
 
-    if (error) {
-      setMsg(`Execution exception: ${error.message}`)
-    } else {
+    {
       setMsg('🏢 New Corporate Node activated globally!')
       setNewCompanyName('')
       setNewCompanyShort('')

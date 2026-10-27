@@ -58,6 +58,14 @@ export default function OrderDetail() {
           .single()
 
         if (orderError) throw orderError
+
+        const isOrderOwner = orderData.customer_id === user.id
+        if (!isOrderOwner && !activeCompanyId) {
+          toast.error('You do not have access to this order.')
+          navigate('/orders', { replace: true })
+          return
+        }
+
         setOrder(orderData)
 
         // Fetch Logistics Settings for historical accuracy reconstruction
@@ -193,15 +201,10 @@ export default function OrderDetail() {
       // toast.success(`Status updated to: ${newStatus.toUpperCase()}`) // Removed duplicate toast
 
       // 📨 TRIGGER EMAIL NOTIFICATION IF DISPATCHED
-      if (newStatus === 'dispatched' && order?.customers?.email) {
+      if (newStatus === 'dispatched') {
         supabase.functions.invoke('email-notifications', {
-          body: {
-            orderId: id,
-            type: 'dispatched',
-            customerEmail: order.customers.email,
-            customerName: order.customers.name || 'Customer'
-          }
-        }).catch(e => console.error("Email dispatch failed:", e))
+          body: { orderId: id, type: 'dispatched' },
+        }).catch((e) => console.error('Email dispatch failed:', e))
       }
 
     } catch (err) {
@@ -217,11 +220,10 @@ export default function OrderDetail() {
     setInitiatingPayment(true)
     const initToast = toast.loading('Initializing secure Paynow checkout...')
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const total = (order.total_amount || 0) + (order.delivery_fee || 0)
-      
-      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('paynow-checkout', { 
-        body: { orderId: order.id, amount: total, customerEmail: user?.email || 'guest@eazyhub.com' } 
+      await supabase.auth.getUser()
+
+      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('paynow-checkout', {
+        body: { orderId: order.id },
       })
       
       if (edgeError) throw edgeError
