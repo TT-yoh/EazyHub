@@ -7,13 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      
-      // ⭐ THE PWA EXTENSION: Configures asset caching behaviors for offline-ready standalone mode
       injectRegister: 'auto',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'robots.txt'], 
       
       workbox: {
-        // Caches all compiled JS, CSS, and public folder assets automatically
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,woff,woff2}'],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -37,6 +34,23 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/leaflet') || id.includes('node_modules/react-leaflet')) {
+            return 'vendor-leaflet'
+          }
+          if (id.includes('node_modules/@supabase')) {
+            return 'vendor-supabase'
+          }
+          if (id.includes('node_modules/@tanstack')) {
+            return 'vendor-query'
+          }
+        },
+      },
+    },
+  },
   server: {
     allowedHosts: process.env.VITE_DEV_TUNNEL_HOST ? [process.env.VITE_DEV_TUNNEL_HOST] : true,
   },
