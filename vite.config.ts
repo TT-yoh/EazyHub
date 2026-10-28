@@ -34,23 +34,6 @@ export default defineConfig({
       }
     })
   ],
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/leaflet') || id.includes('node_modules/react-leaflet')) {
-            return 'vendor-leaflet'
-          }
-          if (id.includes('node_modules/@supabase')) {
-            return 'vendor-supabase'
-          }
-          if (id.includes('node_modules/@tanstack')) {
-            return 'vendor-query'
-          }
-        },
-      },
-    },
-  },
   server: {
     allowedHosts: process.env.VITE_DEV_TUNNEL_HOST ? [process.env.VITE_DEV_TUNNEL_HOST] : true,
   },
